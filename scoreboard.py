@@ -3,6 +3,8 @@ import datetime
 import facebook
 import os
 
+import pdb
+
 class BadEnvironmentError(Exception):
     pass
 
@@ -52,7 +54,7 @@ class GraphObject:
     def _check_for_error(self, resp):
         if 'error' in resp.keys():
             raise BadRequestError(resp)
-        if not resp['data']:
+        if 'data' in resp.keys() and not resp['data']:
             raise EmptyResponseError
         else:
             return resp
@@ -60,21 +62,22 @@ class GraphObject:
 class Query(GraphObject):
     DEFAULT_LIMIT = 500
     
-    def __init__(self, page, name, last_date=0, *args):
+    def __init__(self, page, name, last_date=0, **kwargs):
         
         self._page = page
-        self._init_args = args
+        self._init_args = kwargs
         self.last_date = last_date
         self.name = name
         self.resp = {}
         
-    def query(self, *args):
-        resp = self._page.graph.get_connection(self._page.page_id,
-                                               self.name, *args)
+    def query(self, **kwargs):
+        resp = self._page.graph.get_connections(self._page.page_id,
+                                               self.name, **kwargs)
         self.resp = self._check_for_error(resp)
-
+        
         return resp
 
+    #TODO: this needs to do something sane if 'paging' isn't in the resp
     @property
     def next_args(self):
         return self._get_args('next')
@@ -85,7 +88,10 @@ class Query(GraphObject):
     
     
     def _get_args(self, direction):
-        return self._proc_args(self.resp['paging'][direction])
+        try:
+            return self._proc_args(self.resp['paging'][direction])
+        except KeyError:
+            return None
     
     def _proc_args(self, query_url, *args):
         args_list = [e.split('=') for e in query_url.lsplit('?')[-1].split('&')]
@@ -100,16 +106,16 @@ class Query(GraphObject):
         # give us an invalid result.
         # We care about this in particular so that the iterator can capture
         # them later.
-        if self.next_args['until'] < self.last_date:
-            raise BadDateError
-        if self.next_args['until'] == self.prev_args['since']:
-            raise EmptyQueryError
+        if self.next_args:
+            if self.next_args['until'] < self.last_date:
+                raise BadDateError
+            if self.next_args['until'] == self.prev_args['since']:
+                raise EmptyQueryError
 
         if not self.resp:
-            self.resp = self.query(self._init_args)
+            self.resp = self.query(**self._init_args)
         else:
-            self.resp = self.query(*['='.join(k, v) for k, v
-                                     in self.next_args.items()])
+            self.resp = self.query(**self.next_args)
 
         return self.resp
 
@@ -132,7 +138,7 @@ class IterableQuery:
         except (EmptyResponseError, BadDateError, EmptyQueryError):
             raise StopIteration
         
-        return ret['data']
+        return ret
         
     
 class Page(GraphObject):
@@ -142,11 +148,11 @@ class Page(GraphObject):
         self.graph = graph
         self.page_id = page_id
 
-        self._check_for_error(self._graph.get_object(page_id))
+        self._check_for_error(self.graph.get_object(page_id))
 
     # This very well may be evil.    
     def __getattr__(self, name):
-        return lambda args: Query(self, name, *args)
+        return lambda **kwargs: Query(self, name, **kwargs)
     
     
 class Scraper:
@@ -174,8 +180,8 @@ class Scraper:
         token = facebook.get_app_access_token(app_id, app_secret)
         assert(token)
 
-        print(token)
-    
+
+        
         return facebook.GraphAPI(token)
         
                 
