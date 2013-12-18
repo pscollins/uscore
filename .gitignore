@@ -42,3 +42,4 @@ nosetests.xml
 # Project-specific 
 set-keys.sh
 keys.py
+/crushes.p
