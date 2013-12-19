@@ -50,7 +50,7 @@ def try_del(d, *args):
 
     return d
 
-class GraphObject:
+class AbstractGraphObject:
     def _check_for_error(self, resp):
         if 'error' in resp.keys():
             raise BadRequestError(resp)
@@ -59,11 +59,10 @@ class GraphObject:
         else:
             return resp
 
-class Query(GraphObject):
+class Query(AbstractGraphObject):
     DEFAULT_LIMIT = 500
     
-    def __init__(self, page, name, last_date=0, **kwargs):
-        
+    def __init__(self, page, name, last_date=0, **kwargs):        
         self._page = page
         self._init_args = kwargs
         self.last_date = last_date
@@ -71,8 +70,8 @@ class Query(GraphObject):
         self.resp = {}
         
     def query(self, **kwargs):
-        resp = self._page.graph.get_connections(self._page.page_id,
-                                               self.name, **kwargs)
+        resp = self._page.graph.get_connections(self._page.obj_id,
+                                                self.name, **kwargs)
         self.resp = self._check_for_error(resp)
         
         return resp
@@ -93,7 +92,8 @@ class Query(GraphObject):
             return None
     
     def _proc_args(self, query_url):
-        args_list = [e.split('=') for e in query_url.split('?', 1)[-1].split('&')]
+        args_list = [e.split('=') for e in \
+                     query_url.split('?', 1)[-1].split('&')]
         ret = {key:value for key, value in args_list}
         if not 'limit' in ret.keys():
             ret['limit'] = self.DEFAULT_LIMIT
@@ -179,34 +179,53 @@ class IterableQuery:
                     raise StopIteration
         
     
-class Page(GraphObject):
-    def __init__(self, graph, page_id):
-        assert type(page_id) is str
+class GraphObject(AbstractGraphObject):
+    def __init__(self, graph, obj_id):
+        assert type(obj_id) is str
         
         self.graph = graph
-        self.page_id = page_id
+        self.obj_id = obj_id
 
-        self._check_for_error(self.graph.get_object(page_id))
-
-    # This very well may be evil.    
+    # This very well may be evil.
     def __getattr__(self, name):
         return lambda **kwargs: Query(self, name, **kwargs)
 
 class Post:
-    def __init__(self, post_dict):
+    '''Class for organizing data returned from facebook wall posts. If a
+Graph object is passed, it will perform a "deep check" and pull down all
+of the comments and likes.'''
+    def __init__(self, post_dict, graph=None):
         self._post_dict = post_dict
+        self._graph = graph
+        
+        # we need to hit Facebook for this, so we check if its necessary first
+        self.comments = self._deep_update('comments')
+        self.likes = self._deep_update('likes')
 
-    def __getattr__(self, name):
-        try:
-            return self._post_dict[name]['data']
-        except KeyError:
-            raise AttributeError
+        self.message = post_dict['message']
 
-    # def comments(self):
-    #     return self._post_dict['comments']['data']
-
-    # def likes(self):
-    #     return self._post_dict['likes']['data']
+    #lazy initialization because we hit the page
+    @property
+    def _post(self):
+        if not hasattr(self, '__post'):
+            self.__post = GraphObject(graph, post_id)
+        return self.__post
+            
+    def _needs_deep_update(self, key):
+        unique_cursors = \
+          len(set(self._post_dict[key]['paging']['cursors'].values()))
+        if self._graph and unique_cursors > 1:
+            return True
+        return False
+            
+    def _deep_update(self, key):
+        ret = []
+        if self._needs_deep_update(key):
+            for comments in getattr(self._post, key)():
+                ret += comments
+        else:
+            ret = self._post_dict[key]['data']
+        return ret
         
     
 class Scraper:
@@ -222,7 +241,7 @@ class Scraper:
         self.posts = {}
         # last_scraped holds the unix timestamp when the last scraping happened
         self.last_scraped = 0
-        self.page = Page(graph, page_id)
+        self.page = GraphObject(graph, page_id)
         
 
     def _get_graph_from_env(self):
@@ -251,7 +270,8 @@ class Scraper:
             # Also, it would parallelize easily, IF we knew how many queries it
             # would take to get to the end of self.page.posts
             for posts in self.page.posts(**kwargs):
-                self.posts += posts['data']
+                print("posts: ", posts)
+                self.posts += [Post(p) for p in posts['data']]
                 if not num_to_proc:
                     break
                 num_to_proc -= 1

@@ -13,7 +13,7 @@ class TestScraper(unittest.TestCase):
         self.scraper = scraper.Scraper(self.ID)
 
     def test_page_initialized(self):
-        self.assertEqual(self.ID, self.scraper.page.page_id)
+        self.assertEqual(self.ID, self.scraper.page.obj_id)
         
     def test_get_graph_from_env(self):
         # the 'facebook.GraphAPI' call internally doesn't do any work
@@ -50,8 +50,10 @@ class TestScraper(unittest.TestCase):
             f(self.scraper.page.picture(redirect='false'))['data']['url'])
 
 
+# TODO: now this is throwing an error because it says that the application
+# isn't authorized... what the actual fuck?
     def test_update_scraper(self):
-        posts = self.scraper.update_scoreboard(num_to_proc=3, limit='500')
+        posts = self.scraper.update_scoreboard(num_to_proc=3, limit='5')
 
         print(posts)
         print("len:", len(posts))

@@ -44,4 +44,3 @@ set-keys.sh
 keys.py
 /crushes.p
 /model/tests/posts.p
-/model/tests/test_tabulate.py
