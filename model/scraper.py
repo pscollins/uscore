@@ -1,10 +1,9 @@
-'''The purpose of this module is to implement all of the parts of scoreboard that need to talk to the Facebook API.'''
+'''The purpose of this module is to implement all of the parts of
+scoreboard that need to talk to the Facebook API.'''
 
 import datetime
 import facebook
 import os
-
-import pdb
 
 class BadEnvironmentError(Exception):
     pass
@@ -78,7 +77,6 @@ class Query(GraphObject):
         
         return resp
 
-    #TODO: this needs to do something sane if 'paging' isn't in the resp
     @property
     def next_args(self):
         return self._get_args('next')
@@ -94,34 +92,55 @@ class Query(GraphObject):
         except KeyError:
             return None
     
-    def _proc_args(self, query_url, *args):
+    def _proc_args(self, query_url):
         args_list = [e.split('=') for e in query_url.split('?', 1)[-1].split('&')]
         ret = {key:value for key, value in args_list}
         if not 'limit' in ret.keys():
             ret['limit'] = self.DEFAULT_LIMIT
             
         return ret
+
+    def _check_next_args(self):
+        if 'until' in self.next_args.keys():
+            next_key, prev_key = 'until', 'since'
+            if int(self.next_args[next_key]) < self.last_date:
+                raise BadDateError
+        elif 'after' in self.next_args.keys():
+            next_key, prev_key = 'after', 'before'
+        if self.next_args[next_key] == self.prev_args[prev_key]:
+            raise EmptyQueryError
+
+    
+    def next(self, **kwargs):
+        args = {}
         
-    def next(self):
         # check for failure conditions and raise exceptions if something will
         # give us an invalid result.
         # We care about this in particular so that the iterator can capture
         # them later.
         if self.next_args:
-            if int(self.next_args['until']) < self.last_date:
-                raise BadDateError
-            if self.next_args['until'] == self.prev_args['since']:
-                raise EmptyQueryError
+            self._check_next_args()
 
-        if not self.resp:
-                self.resp = self.query(**self._init_args)
+        # order is important:
+        # first, check to see if custom args have been given, use them if they
+        # have.
+        # next, check if we've made a query before, if not, build the inital
+        # arguments.
+        # next, try to pull the args out of the query
+        # if nothing has worked, raise EmptyQueryError
+        if kwargs:
+            args = kwargs
+        elif not self.resp:
+            args = self._init_args
         elif self.next_args:
-                self.resp = self.query(**self.next_args)
+            args = self.next_args
         else:
             # we only hit this branch if we don't have 'next' args to go to
-            # and we're not on our first query
+            # and we're not on our first query, and no custom args have been
+            # given
             raise EmptyQueryError
 
+        self.resp = self.query(**args)
         return self.resp
 
     def __iter__(self):
@@ -132,18 +151,32 @@ class Query(GraphObject):
 # Anyway, it will be opaque to any calling code so I can go back and add in
 # a __next__ to Query later on in life if it turns out to be annoying
 class IterableQuery:
+    # step backwards to take if last_date has been set
+    STEP = 259200
     def __init__(self, query):
         self._query = query
 
     def __next__(self):
-        ret = {}
-        try:
-            ret = self._query.next()
-            
-        except (EmptyResponseError, BadDateError, EmptyQueryError):
-            raise StopIteration
-        
-        return ret
+        # is this ugly? we need it to keep trying until it fails, and this
+        # saves us recursion + an argument to __next__
+        while True:
+            args = {}
+            try:
+                return self._query.next(**args)
+            except (BadDateError, EmptyQueryError):
+                raise StopIteration
+            except EmptyResponseError:
+                # override and force a new query with the next date
+                # if it's been set
+                # this isn't going to loop infinitely because eventually
+                # BadDateError will be raised
+                # we need to do this because the 'next' cursor that the Graph
+                # API gives us randomly fail to produce any results
+                if self._query.last_date:
+                    args = self._query.next_args
+                    args['until'] -= self.STEP
+                else:
+                    raise StopIteration
         
     
 class Page(GraphObject):
@@ -158,12 +191,28 @@ class Page(GraphObject):
     # This very well may be evil.    
     def __getattr__(self, name):
         return lambda **kwargs: Query(self, name, **kwargs)
-    
+
+class Post:
+    def __init__(self, post_dict):
+        self._post_dict = post_dict
+
+    def __getattr__(self, name):
+        try:
+            return self._post_dict[name]['data']
+        except KeyError:
+            raise AttributeError
+
+    # def comments(self):
+    #     return self._post_dict['comments']['data']
+
+    # def likes(self):
+    #     return self._post_dict['likes']['data']
+        
     
 class Scraper:
     # delay between successive scrapes
     DELAY = 3600
-    def __init__(self, page_id, name_list=None, graph_source=None):
+    def __init__(self, page_id, graph_source=None):
         if not graph_source:
             graph = self._get_graph_from_env()
         else:
