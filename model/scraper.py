@@ -101,12 +101,18 @@ class Query(AbstractGraphObject):
         return ret
 
     def _check_next_args(self):
+        print('next_args: ', self.next_args.keys())
         if 'until' in self.next_args.keys():
             next_key, prev_key = 'until', 'since'
             if int(self.next_args[next_key]) < self.last_date:
                 raise BadDateError
         elif 'after' in self.next_args.keys():
             next_key, prev_key = 'after', 'before'
+        else:
+            # NB: this is not really the right exception, but i don't think it
+            # makes sense to define a new one
+            raise BadDateError
+        # TODO: this is erroring
         if self.next_args[next_key] == self.prev_args[prev_key]:
             raise EmptyQueryError
 
@@ -195,53 +201,75 @@ class Post:
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
     def __init__(self, post_dict, graph=None):
+        print(post_dict)
         self._post_dict = post_dict
         self._graph = graph
+        self._post_id = post_dict['id']
+        print('graph :', graph)
         
-        # we need to hit Facebook for this, so we check if its necessary first
         self.comments = self._deep_update('comments')
         self.likes = self._deep_update('likes')
 
-        self.message = post_dict['message']
+        try:
+            self.message = post_dict['message']
+        except KeyError:
+            self.message = ''
+
+    def __repr__(self):
+        fmt = 'Message: {}\nLikes: {}\nComments: {}'
+        return fmt.format(self.message, self.likes, self.comments)
 
     #lazy initialization because we hit the page
     @property
     def _post(self):
         if not hasattr(self, '__post'):
-            self.__post = GraphObject(graph, post_id)
+            self.__post = GraphObject(self._graph, self._post_id)
         return self.__post
             
     def _needs_deep_update(self, key):
         unique_cursors = \
           len(set(self._post_dict[key]['paging']['cursors'].values()))
+        print('unique cursors: ', unique_cursors)
+        print('cursors: ', set(self._post_dict[key]['paging']['cursors'].values()))
+        print('u_c > 1?', unique_cursors > 1)
         if self._graph and unique_cursors > 1:
             return True
         return False
-            
+
+    
     def _deep_update(self, key):
         ret = []
-        if self._needs_deep_update(key):
-            for comments in getattr(self._post, key)():
-                ret += comments
-        else:
-            ret = self._post_dict[key]['data']
+        # if there are no comments/likes, the response doesn't contain the key
+        # 'comments' or 'likes', so we need to check for that and return an
+        # empty list if it doesn't
+        if key in self._post_dict.keys():
+            print(key, ": ", self._post_dict[key]['data'])
+            print("yes1")
+            if self._needs_deep_update(key):
+                print("yes2")
+                for comments in getattr(self._post, key)():
+                    ret += comments
+            else:
+                print('other yes')
+                ret = self._post_dict[key]['data']
+                    
         return ret
         
     
 class Scraper:
     # delay between successive scrapes
     DELAY = 3600
-    def __init__(self, page_id, graph_source=None):
-        if not graph_source:
-            graph = self._get_graph_from_env()
+    def __init__(self, page_id, access_token=None):
+        if not access_token:
+            self._graph = self._get_graph_from_env()
         else:
-            # implement me later
-            pass
+            self._graph = facebook.GraphAPI(access_token)
+
 
         self.posts = {}
         # last_scraped holds the unix timestamp when the last scraping happened
         self.last_scraped = 0
-        self.page = GraphObject(graph, page_id)
+        self.page = GraphObject(self._graph, page_id)
         
 
     def _get_graph_from_env(self):
@@ -256,7 +284,8 @@ class Scraper:
         return facebook.GraphAPI(token)
             
                 
-    def update_scoreboard(self, num_to_proc=float("inf"), **kwargs):
+    def update_scoreboard(self, num_to_proc=float("inf"),
+                          deep=False, source=None, **kwargs):
         # TODO: currently, this gets stuck around June because the Graph API
         # rolls lke that for whatever reason. Need to add in an override that
         # says "even if you're not getting anything in response, keep hitting
@@ -266,12 +295,20 @@ class Scraper:
         if self.last_scraped < (now + self.DELAY):
             self.last_scraped = now
             self.posts = []
+
+            post_constructor = lambda p: Post(p, self._graph) if deep else Post
+
+            if source:
+                post_fetcher = getattr(self.page, source)(**kwargs)
+            else:
+                post_fetcher = self.page.feed(**kwargs)
+                
             # NOTE: this is going to be REALLY EXPENSIVE
             # Also, it would parallelize easily, IF we knew how many queries it
             # would take to get to the end of self.page.posts
-            for posts in self.page.posts(**kwargs):
-                print("posts: ", posts)
-                self.posts += [Post(p) for p in posts['data']]
+            for posts in post_fetcher:
+                # print("posts: ", posts)
+                self.posts += [post_constructor(p) for p in posts['data']]
                 if not num_to_proc:
                     break
                 num_to_proc -= 1

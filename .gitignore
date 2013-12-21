@@ -44,3 +44,4 @@ set-keys.sh
 keys.py
 /crushes.p
 /model/tests/posts.p
+/model/simple_run.py

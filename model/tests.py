@@ -56,6 +56,8 @@ class TestScraper(unittest.TestCase):
         posts = self.scraper.update_scoreboard(num_to_proc=3, limit='5')
 
         print(posts)
+        print(posts[0])
+        print(str(posts[0]))
         print("len:", len(posts))
         self.assertTrue(len(posts) > 10)
         
