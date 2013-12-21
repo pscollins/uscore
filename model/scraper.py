@@ -4,6 +4,8 @@ scoreboard that need to talk to the Facebook API.'''
 import datetime
 import facebook
 import os
+import urllib.parse
+
 
 class BadEnvironmentError(Exception):
     pass
@@ -62,7 +64,8 @@ class AbstractGraphObject:
 class Query(AbstractGraphObject):
     DEFAULT_LIMIT = 500
     
-    def __init__(self, page, name, last_date=0, **kwargs):        
+    def __init__(self, page, name, last_date=0, **kwargs):
+        # print("query initialized: ", page, name, last_date, kwargs)        
         self._page = page
         self._init_args = kwargs
         self.last_date = last_date
@@ -70,6 +73,7 @@ class Query(AbstractGraphObject):
         self.resp = {}
         
     def query(self, **kwargs):
+        # print('about to query: ', self._page.obj_id, self.name, kwargs)
         resp = self._page.graph.get_connections(self._page.obj_id,
                                                 self.name, **kwargs)
         self.resp = self._check_for_error(resp)
@@ -92,16 +96,23 @@ class Query(AbstractGraphObject):
             return None
     
     def _proc_args(self, query_url):
-        args_list = [e.split('=') for e in \
-                     query_url.split('?', 1)[-1].split('&')]
-        ret = {key:value for key, value in args_list}
+        # args_list = [e.split('=') for e in \
+        #              query_url.split('?', 1)[-1].split('&')]
+        
+        ret = {key:value[0] for key, value in \
+            urllib.parse.parse_qs(query_url.split('?', 1)[-1]).items()}
         if not 'limit' in ret.keys():
             ret['limit'] = self.DEFAULT_LIMIT
+
+        # this might be causing an issue -- it's also alread handled by
+        # the facebook module
+        if 'access_token' in ret.keys():
+            del(ret['access_token'])
             
         return ret
 
     def _check_next_args(self):
-        print('next_args: ', self.next_args.keys())
+        # print('next_args: ', self.next_args.keys())  
         if 'until' in self.next_args.keys():
             next_key, prev_key = 'until', 'since'
             if int(self.next_args[next_key]) < self.last_date:
@@ -112,9 +123,10 @@ class Query(AbstractGraphObject):
             # NB: this is not really the right exception, but i don't think it
             # makes sense to define a new one
             raise BadDateError
+        # if self.resp and len(set(self.resp['paging']['cursors']
         # TODO: this is erroring
-        if self.next_args[next_key] == self.prev_args[prev_key]:
-            raise EmptyQueryError
+        # if self.next_args[next_key] == self.prev_args[prev_key]:
+            # raise EmptyQueryError
 
     
     def next(self, **kwargs):
@@ -169,7 +181,8 @@ class IterableQuery:
             args = {}
             try:
                 return self._query.next(**args)
-            except (BadDateError, EmptyQueryError):
+            except (BadDateError, EmptyQueryError) as e:
+                # print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
                 # override and force a new query with the next date
@@ -196,16 +209,19 @@ class GraphObject(AbstractGraphObject):
     def __getattr__(self, name):
         return lambda **kwargs: Query(self, name, **kwargs)
 
+    def __repr__(self):
+        return "GraphObject: ({}, {})".format(self.graph, self.obj_id)
+
 class Post:
     '''Class for organizing data returned from facebook wall posts. If a
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
     def __init__(self, post_dict, graph=None):
-        print(post_dict)
+        # print(post_dict)
         self._post_dict = post_dict
         self._graph = graph
         self._post_id = post_dict['id']
-        print('graph :', graph)
+        # print('graph :', graph)
         
         self.comments = self._deep_update('comments')
         self.likes = self._deep_update('likes')
@@ -229,9 +245,9 @@ of the comments and likes.'''
     def _needs_deep_update(self, key):
         unique_cursors = \
           len(set(self._post_dict[key]['paging']['cursors'].values()))
-        print('unique cursors: ', unique_cursors)
-        print('cursors: ', set(self._post_dict[key]['paging']['cursors'].values()))
-        print('u_c > 1?', unique_cursors > 1)
+        # print('unique cursors: ', unique_cursors)
+        # print('cursors: ', set(self._post_dict[key]['paging']['cursors'].values()))
+        # print('u_c > 1?', unique_cursors > 1)
         if self._graph and unique_cursors > 1:
             return True
         return False
@@ -243,14 +259,18 @@ of the comments and likes.'''
         # 'comments' or 'likes', so we need to check for that and return an
         # empty list if it doesn't
         if key in self._post_dict.keys():
-            print(key, ": ", self._post_dict[key]['data'])
-            print("yes1")
+            # print(key, ": ", self._post_dict[key]['data'])
+            # print("yes1")
             if self._needs_deep_update(key):
-                print("yes2")
-                for comments in getattr(self._post, key)():
-                    ret += comments
+                # print("yes2", key)
+                # print(self._post, getattr(self._post, key), getattr(self._post, key)())
+                # print(getattr(self._post, key)().next())
+                for elements in getattr(self._post, key)():
+                    # print('in loop')
+                    # print(key, ": ", elements['data'])
+                    ret += elements['data']
             else:
-                print('other yes')
+                # print('other yes')
                 ret = self._post_dict[key]['data']
                     
         return ret
