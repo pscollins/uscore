@@ -62,13 +62,22 @@ class AbstractGraphObject:
             return resp
 
 class Query(AbstractGraphObject):
-    DEFAULT_LIMIT = 500
+    # TODO: make sure this gets passed in the initial arguments
+    # we're getting a significant slowdown from unncessary queries inside
+    # of the likes and comments
+    DEFAULT_LIMIT = '500'
     
-    def __init__(self, page, name, last_date=0, **kwargs):
-        # print("query initialized: ", page, name, last_date, kwargs)        
+    def __init__(self, page, name, **kwargs):
+        print("query initialized: ", page, name, kwargs)        
         self._page = page
+
+        
+        try:
+            self.last_date = kwargs.pop('last_date')
+        except KeyError:
+            self.last_date = None
+
         self._init_args = kwargs
-        self.last_date = last_date
         self.name = name
         self.resp = {}
         
@@ -104,7 +113,7 @@ class Query(AbstractGraphObject):
         if not 'limit' in ret.keys():
             ret['limit'] = self.DEFAULT_LIMIT
 
-        # this might be causing an issue -- it's also alread handled by
+        # this might be causing an issue -- it's also already handled by
         # the facebook module
         if 'access_token' in ret.keys():
             del(ret['access_token'])
@@ -185,15 +194,19 @@ class IterableQuery:
                 # print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
+                print('inside EmptyResponseError')
+                print(self._query.last_date)
                 # override and force a new query with the next date
                 # if it's been set
                 # this isn't going to loop infinitely because eventually
                 # BadDateError will be raised
                 # we need to do this because the 'next' cursor that the Graph
                 # API gives us randomly fail to produce any results
-                if self._query.last_date:
+                if self._query.last_date is not None:
+                    print('decrementing')
                     args = self._query.next_args
-                    args['until'] -= self.STEP
+                    print(self._query.next_args['until'])
+                    args['until'] = str(int(args['until']) - self.STEP)
                 else:
                     raise StopIteration
         
@@ -310,28 +323,29 @@ class Scraper:
         # rolls lke that for whatever reason. Need to add in an override that
         # says "even if you're not getting anything in response, keep hitting
         # until you arrive at this date"
-        now = datetime.datetime.now().timestamp()
+        # now = datetime.datetime.now().timestamp()
+        
+        # if self.last_scraped < (now + self.DELAY):
+        # self.last_scraped = now
+        self.posts = []
+        print('kwargs: ', kwargs)
 
-        if self.last_scraped < (now + self.DELAY):
-            self.last_scraped = now
-            self.posts = []
+        post_constructor = lambda p: Post(p, self._graph) if deep else Post
 
-            post_constructor = lambda p: Post(p, self._graph) if deep else Post
-
-            if source:
-                post_fetcher = getattr(self.page, source)(**kwargs)
-            else:
-                post_fetcher = self.page.feed(**kwargs)
+        if source:
+            post_fetcher = getattr(self.page, source)(**kwargs)
+        else:
+            post_fetcher = self.page.feed(**kwargs)
                 
             # NOTE: this is going to be REALLY EXPENSIVE
             # Also, it would parallelize easily, IF we knew how many queries it
             # would take to get to the end of self.page.posts
-            for posts in post_fetcher:
-                # print("posts: ", posts)
-                self.posts += [post_constructor(p) for p in posts['data']]
-                if not num_to_proc:
-                    break
-                num_to_proc -= 1
+        for posts in post_fetcher:
+            # print("posts: ", posts)
+            self.posts += [post_constructor(p) for p in posts['data']]
+            if not num_to_proc:
+                break
+            num_to_proc -= 1
 
 
         return self.posts
