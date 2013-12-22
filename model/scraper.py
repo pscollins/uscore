@@ -190,7 +190,7 @@ class IterableQuery:
             args = {}
             try:
                 return self._query.next(**args)
-            except (BadDateError, EmptyQueryError) as e:
+            except (BadDateError, EmptyQueryError):
                 # print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
@@ -225,28 +225,40 @@ class GraphObject(AbstractGraphObject):
     def __repr__(self):
         return "GraphObject: ({}, {})".format(self.graph, self.obj_id)
 
-class Post:
+# lighweight, serializable namedtuple for our posts
+Post = namedtuple('Post', field_names=('message', 'comments', 'likes'))
+
+# and a factory class carries around the GraphAPI objects we need to make
+# queries.     
+class PostFactory:
     '''Class for organizing data returned from facebook wall posts. If a
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
-    def __init__(self, post_dict, graph=None):
+    def __init__(self, graph=None):
         # print(post_dict)
-        self._post_dict = post_dict
         self._graph = graph
-        self._post_id = post_dict['id']
         # print('graph :', graph)
-        
-        self.comments = self._deep_update('comments')
-        self.likes = self._deep_update('likes')
+    
+    def create(self, post_dict):
+        #TODO: refactor these out of the properties of the class?
+        # they aren't really associated with the class factory itself
+        self._post_dict = post_dict
+        self._post_id = post_dict['id']
 
         try:
-            self.message = post_dict['message']
+            message = post_dict['message']
         except KeyError:
-            self.message = ''
+            message = ''
 
-    def __repr__(self):
-        fmt = 'Message: {}\nLikes: {}\nComments: {}'
-        return fmt.format(self.message, self.likes, self.comments)
+        comments = self._deep_update('comments')
+        likes = self._deep_update('likes')
+
+
+        return Post(message, comments, likes)
+
+    # def __repr__(self):
+    #     fmt = 'Message: {}\nLikes: {}\nComments: {}'
+    #     return fmt.format(self.message, self.likes, self.comments)
 
     #lazy initialization because we hit the page
     @property
@@ -258,9 +270,6 @@ of the comments and likes.'''
     def _needs_deep_update(self, key):
         unique_cursors = \
           len(set(self._post_dict[key]['paging']['cursors'].values()))
-        # print('unique cursors: ', unique_cursors)
-        # print('cursors: ', set(self._post_dict[key]['paging']['cursors'].values()))
-        # print('u_c > 1?', unique_cursors > 1)
         if self._graph and unique_cursors > 1:
             return True
         return False
@@ -272,12 +281,7 @@ of the comments and likes.'''
         # 'comments' or 'likes', so we need to check for that and return an
         # empty list if it doesn't
         if key in self._post_dict.keys():
-            # print(key, ": ", self._post_dict[key]['data'])
-            # print("yes1")
             if self._needs_deep_update(key):
-                # print("yes2", key)
-                # print(self._post, getattr(self._post, key), getattr(self._post, key)())
-                # print(getattr(self._post, key)().next())
                 for elements in getattr(self._post, key)():
                     # print('in loop')
                     # print(key, ": ", elements['data'])
@@ -330,7 +334,8 @@ class Scraper:
         self.posts = []
         print('kwargs: ', kwargs)
 
-        post_constructor = lambda p: Post(p, self._graph) if deep else Post
+        
+        post_factory = PostFactory(p, self._graph if deep else None)
 
         if source:
             post_fetcher = getattr(self.page, source)(**kwargs)
@@ -342,7 +347,7 @@ class Scraper:
             # would take to get to the end of self.page.posts
         for posts in post_fetcher:
             # print("posts: ", posts)
-            self.posts += [post_constructor(p) for p in posts['data']]
+            self.posts += [post_factory.create(p) for p in posts['data']]
             if not num_to_proc:
                 break
             num_to_proc -= 1
