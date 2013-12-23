@@ -46,3 +46,6 @@ keys.py
 /model/tests/posts.p
 /model/simple_run.py
 /model/ps_full.p
+/data/individual_whitepages.pdf
+/data/individual_whitepages.txt
+/data/resp.txt

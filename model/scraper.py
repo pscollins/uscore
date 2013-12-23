@@ -5,6 +5,7 @@ import datetime
 import facebook
 import os
 import urllib.parse
+import collections
 
 
 class BadEnvironmentError(Exception):
@@ -77,7 +78,10 @@ class Query(AbstractGraphObject):
         except KeyError:
             self.last_date = None
 
+        # we overwrite the default limit if it's been passed in kwargs
+        self._init_args = {'limit':self.DEFAULT_LIMIT}
         self._init_args = kwargs
+
         self.name = name
         self.resp = {}
         
@@ -124,7 +128,8 @@ class Query(AbstractGraphObject):
         # print('next_args: ', self.next_args.keys())  
         if 'until' in self.next_args.keys():
             next_key, prev_key = 'until', 'since'
-            if int(self.next_args[next_key]) < self.last_date:
+            if (self.last_date is not None) and \
+              (int(self.next_args[next_key]) < self.last_date):
                 raise BadDateError
         elif 'after' in self.next_args.keys():
             next_key, prev_key = 'after', 'before'
@@ -194,6 +199,7 @@ class IterableQuery:
                 # print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
+                # TODO: this isn't working
                 print('inside EmptyResponseError')
                 print(self._query.last_date)
                 # override and force a new query with the next date
@@ -226,7 +232,8 @@ class GraphObject(AbstractGraphObject):
         return "GraphObject: ({}, {})".format(self.graph, self.obj_id)
 
 # lighweight, serializable namedtuple for our posts
-Post = namedtuple('Post', field_names=('message', 'comments', 'likes'))
+Post = collections.namedtuple('Post',
+                              field_names=('message', 'comments', 'likes'))
 
 # and a factory class carries around the GraphAPI objects we need to make
 # queries.     
@@ -332,10 +339,10 @@ class Scraper:
         # if self.last_scraped < (now + self.DELAY):
         # self.last_scraped = now
         self.posts = []
-        print('kwargs: ', kwargs)
+        # print('kwargs: ', kwargs)
 
         
-        post_factory = PostFactory(p, self._graph if deep else None)
+        post_factory = PostFactory(self._graph if deep else None)
 
         if source:
             post_fetcher = getattr(self.page, source)(**kwargs)

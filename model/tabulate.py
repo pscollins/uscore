@@ -4,7 +4,10 @@ it with everything in this file'''
 import abc
 
 class Adder:
-    '''Abstract base class for UniqueAdder and Tabulator, mostly so that we can share private methods beween them'''
+    '''
+    Abstract base class for UniqueAdder and Tabulator, mostly so that we
+    can share private methods beween them
+    '''
     
     @abc.abstractmethod
     def __init__(self):
@@ -58,9 +61,6 @@ class Tabulator(Adder):
         for name in self.names:
             if name in post.message:
                 self.res[name]['in text count'] += 1
-                # TODO: we need to walk across this list...
-                # let's go back into the scraper and make sure that it gets all
-                # of the info that there is to get on its first pass
                 self.res[name]['in text likes'] += self._update_likes(post)
 
     def _update_in_comments_count(self, post):
@@ -84,7 +84,6 @@ class Tabulator(Adder):
         self._update_in_comments_count(post)
 
     def tabulate(self):
-        # let's go back and make posts into an object that holds things nicely.
         for post in self.posts:
             self._update(post)
         return self.res
