@@ -63,10 +63,10 @@ class AbstractGraphObject:
             return resp
 
 class Query(AbstractGraphObject):
-    # TODO: make sure this gets passed in the initial arguments
-    # we're getting a significant slowdown from unncessary queries inside
-    # of the likes and comments
     DEFAULT_LIMIT = '500'
+    # step backwards to take if last_date has been set, in seconds
+    STEP = 259200
+
     
     def __init__(self, page, name, **kwargs):
         print("query initialized: ", page, name, kwargs)        
@@ -176,17 +176,7 @@ class Query(AbstractGraphObject):
         return self.resp
 
     def __iter__(self):
-        return IterableQuery(self)
-
-    
-# I'm not sure if this is considered good style?
-# Anyway, it will be opaque to any calling code so I can go back and add in
-# a __next__ to Query later on in life if it turns out to be annoying
-class IterableQuery:
-    # step backwards to take if last_date has been set
-    STEP = 259200
-    def __init__(self, query):
-        self._query = query
+        return self
 
     def __next__(self):
         # is this ugly? we need it to keep trying until it fails, and this
@@ -194,27 +184,37 @@ class IterableQuery:
         while True:
             args = {}
             try:
-                return self._query.next(**args)
+                return self.next(**args)
             except (BadDateError, EmptyQueryError):
                 # print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
                 # TODO: this isn't working
                 print('inside EmptyResponseError')
-                print(self._query.last_date)
+                print(self.last_date)
                 # override and force a new query with the next date
                 # if it's been set
                 # this isn't going to loop infinitely because eventually
                 # BadDateError will be raised
                 # we need to do this because the 'next' cursor that the Graph
                 # API gives us randomly fail to produce any results
-                if self._query.last_date is not None:
+                if self.last_date is not None:
                     print('decrementing')
-                    args = self._query.next_args
-                    print(self._query.next_args['until'])
+                    args = self.next_args
+                    print(self.next_args['until'])
                     args['until'] = str(int(args['until']) - self.STEP)
                 else:
                     raise StopIteration
+    
+    
+# I'm not sure if this is considered good style?
+# Anyway, it will be opaque to any calling code so I can go back and add in
+# a __next__ to Query later on in life if it turns out to be annoying
+class IterableQuery:
+    def __init__(self, query):
+        self._query = query
+
+
         
     
 class GraphObject(AbstractGraphObject):
