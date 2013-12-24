@@ -11,9 +11,6 @@ MAX_KEY = 10000000000
 
 #SCOPE = 'sub'
 
-class TooManyResponsesError(Exception):
-    pass
-
 def ldap_and(arg1, arg2):
     return _ldap_filter_join('&', arg1, arg2)
 
@@ -85,6 +82,8 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
 
     print('chunks: ', chunks)
 
+    # TODO: single process map the conn.search() call, then parallelize the
+    # call to conn.getResource(res)
     if pool_size:
         with multiprocessing.Pool(pool_size) as pool:
             cnets = pool.map(get_chunk, chunks)
