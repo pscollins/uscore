@@ -54,3 +54,7 @@ keys.py
 /model/packages_No_Name.png
 /model/scraper_test_tmp
 /model/test_posts.p
+/model/metricData.csv
+/model/metricData.sql
+/model/tests/metricData.csv
+/model/tests/metricData.sql

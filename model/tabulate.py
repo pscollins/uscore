@@ -151,7 +151,7 @@ class Tabulator(Adder):
             if name in post.message:
                 # print('_in_text_count: ', name)
                 self.res[name]['in text count'] += 1
-                self.res[name]['in text likes'] += self._update_likes(post)
+                self.res[name]['in text likes'] += self._get_num_likes(post)
 
     @_check_invariants
     def _update_in_comments_count(self, post):
@@ -163,15 +163,17 @@ class Tabulator(Adder):
         '''
         adder = UniqueAdder(self.res, 'in comments count unique')
         for comment in post.comments:
-            self._inc(comment['from']['name'], 'comments given')
+            sender = comment['from']['name']
+            self._inc(sender, 'comments given')
             try:
                 for tag in comment['message_tags']:
-                    # print('tag: ', tag)
-                    name = tag['name']
-                    adder.add(name)
-                    self._inc(name, 'in comments count gross')
-                    self.res[name]['in comments likes'] += comment['like_count']
-                    self.res[name]['links given'] += 1
+                    print('tag: ', tag)
+                    recipient = tag['name']
+                    adder.add(recipient)
+                    self._inc(recipient, 'in comments count gross')
+                    self.res[recipient]['in comments likes'] += \
+                      comment['like_count']
+                    self.res[sender]['links given'] += 1
             except KeyError:
                 pass
             
@@ -179,11 +181,17 @@ class Tabulator(Adder):
     def _update_likes(self, post):
         '''
         Update the 'likes given' counter for everyone who liked
-        a post, then return the total likes on it.
+        a post.
         '''
         # print(post.likes)
         for like in post.likes:
+            # print(like)
             self._inc(like['name'], 'likes given')
+
+    def _get_num_likes(self, post):
+        '''
+        Get the number of likes for the post.
+        '''
         return len(post.likes)
 
     @_check_invariants
@@ -193,6 +201,7 @@ class Tabulator(Adder):
         '''
         self._update_in_text_count(post)
         self._update_in_comments_count(post)
+        self._update_likes(post)
 
     @_check_invariants
     def tabulate(self):

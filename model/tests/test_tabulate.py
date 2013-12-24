@@ -1,5 +1,7 @@
 import unittest
 import pickle
+import pprint
+
 from uscore.model import tabulate, scraper
 
 # Expected output:
@@ -32,6 +34,8 @@ class TestTabulate(unittest.TestCase):
         cls.tabulator = tabulate.Tabulator(posts, name_list)
         cls.tabulator.tabulate()
 
+        # pprint.pprint(cls.tabulator.res)
+
     def test_tabulator__init__(self):
         for name in self.tabulator.names:
             self.assertIn(name, self.tabulator.res.keys())
@@ -47,13 +51,8 @@ class TestTabulate(unittest.TestCase):
                 self.assertEqual(
                     self.tabulator.res['Stephen Landry']['in text likes'], 10)
 
-    def test_tabulate(self):
-        self.tabulator.tabulate()
 
-        # we test each one in a separate loop
-        # so that later on we can refactor if need be
-
-
+    def test_tabulator_in_comments(self):
         for name in self.tabulator.names:
             to_test = self.tabulator.res[name]
             # print('to_test: ', to_test)
@@ -67,6 +66,7 @@ class TestTabulate(unittest.TestCase):
         for name in self.tabulator.names:
             self.assertEqual(self.tabulator.res[name]['in comments likes'], 0)
 
+    def test_tabulator_comments_likes(self):
         commentors = {
             "Alex Hayden DiLalla":1,
             "Alex McDonough":1,
@@ -83,11 +83,12 @@ class TestTabulate(unittest.TestCase):
             self.assertEqual(to_test,
                              commentors[name] if name in commentors else 0)
 
+    def test_tabulator_likes_given(self):
         likers = {
             "Alex Obasuyi":1,
             "Ashley Seymour":1,
             "Breanna Sullivan":1,
-            "Brendon Mulholland":4,
+            "Brendon Mulholland":3,
             "Christine Hessler":1,
             "Danielle Doerr":1,
             "David Alexander Tomblin":1,
@@ -124,7 +125,7 @@ class TestTabulate(unittest.TestCase):
             "Samantha Slaton":1,
             "Sophie Downes":1,
             "Stephanie Grach":1,
-            "Zelda Mayer":1
+            "Zelda Mayer":1,
             }
             
         for name in self.tabulator.names:
@@ -132,11 +133,14 @@ class TestTabulate(unittest.TestCase):
             self.assertEqual(to_test,
                              likers[name] if name in likers else 0)
 
+
+    def test_tabulator_links_given(self):
         for name in self.tabulator.names:
             to_test = self.tabulator.res[name]['links given']
+            # print('name :', name, 'links given: ', to_test)
             self.assertEqual(to_test,
                              1 if (name == 'Kiran Misra') else 0)
-        
+
     
     def test_unique_adder(self):
         adder = tabulate.UniqueAdder(
