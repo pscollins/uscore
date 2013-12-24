@@ -1,0 +1,1 @@
+from uscore import model

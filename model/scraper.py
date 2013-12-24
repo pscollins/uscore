@@ -1,11 +1,12 @@
 '''The purpose of this module is to implement all of the parts of
 scoreboard that need to talk to the Facebook API.'''
 
+import collections
 import datetime
 import facebook
 import os
+import simplejson
 import urllib.parse
-import collections
 
 
 class BadEnvironmentError(Exception):
@@ -298,6 +299,16 @@ of the comments and likes.'''
                 ret = self._post_dict[key]['data']
                     
         return ret
+
+    @staticmethod
+    def posts_to_file(posts, file_handle):
+        simplejson.dump(posts, file_handle)
+        
+
+    @staticmethod
+    def posts_from_file(file_handle):
+        return [Post(p['message'], p['comments'], p['likes'])
+               for p in simplejson.load(file_handle)]        
         
     
 class Scraper:
