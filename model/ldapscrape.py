@@ -5,7 +5,7 @@ SERVER_URL = 'ldap.uchicago.edu'
 #PORT = '389'
 DN = 'ou=people,dc=uchicago,dc=edu'
 FILTER_PROPERTY_FMT = 'eduPersonAffiliation={}'
-ATTRIBUTES = ['displayName', 'cn']
+ATTRIBUTES = ['displayName', 'cn', 'givenName', 'sn']
 KEY_ON = 'uidNumber'
 MAX_KEY = 10000000000
 
@@ -24,83 +24,66 @@ def make_ldap_filter(key, value, relation='='):
     return "({}{}{})".format(key, relation, value)
 
 def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
-                max_key, min_key=0, port=389, chunk_size=10,
-                pool_size=10):
+                max_key=float('inf'), min_key=0, port=389):
     '''
     Scrapes an entire ldap server and returns a list of the requested
-    attributes for each query. It requires at least one attribute that is
-    numeric, so that it can break the work down into chunks and parallelize.
+    attributes for each query. 
     '''
 
     conn = ldap3.Connection(
         ldap3.Server(server_url, port=port,
                      getInfo=ldap3.GET_ALL_INFO),
-        clientStrategy=ldap3.STRATEGY_ASYNC_THREADED,)
+        clientStrategy=ldap3.STRATEGY_ASYNC_THREADED)
     conn.open()
 
-        
-    #... and open up a new connection for each query to avoid a race
-    def curried_query(filters_with_key):
+    search_attributes = attributes_list
+    if key_on not in search_attributes:
+        search_attributes.append(key_on)
+                  
+    def query(filters_with_key):
         print('submitting query with filters: ', filters_with_key)
         res = conn.getResponse(
             conn.search(dn, filters_with_key, ldap3.SEARCH_SCOPE_WHOLE_SUBTREE,
-                        attributes=attributes_list))
-
-        # TODO: catch this and do something sensible
-        # also rename
-        if res[-1]['description'] != 'success':
-            raise TooManyResponsesError
-        # elif len(res) == 1:
-        #     ret = None
-        # else:
-        #     ret = [[el['attributes'][a] for a in attributes] for el in res[:-1]]
+                        attributes=search_attributes))
         print('got response: ', res)
-        return [[el['attributes'][a] for a in attributes] for el in res[:-1]]
+        response_list = [{a:el['attributes'][a][0] for a in attributes_list}
+                         for el in res[:-1]]
+        # uidNumber gives us a list
+        key_vals = [int(el['attributes'][key_on][0]) for el in res[:-1]]
+
+        return response_list, max(key_vals)
         
 
-    def build_filters_for_range(start_uid, end_uid):
-        # print('building filters for: ', start_uid, ", ", end_uid)
-        # fmt = '({key}{op}={val})'.format(key=key_on,
-        #                                  op='{op}', val='{val}')
-        # print(fmt)
-        # lower_bound = fmt.format(op=">", val=start_uid)
-        # upper_bound = fmt.format(op="<", val=end_uid)
-        lower_bound = make_ldap_filter(key_on, start_uid, '>=')
-        upper_bound = make_ldap_filter(key_on, end_uid, '<=')
-        range_bounds = ldap_and(lower_bound, upper_bound)
-        return ldap_and(filters, range_bounds) if filters else range_bounds
+    def build_filters_for_range(start_key_val):
+        lower_bound = make_ldap_filter(key_on, start_key_val, '>=')
+        return ldap_and(filters, lower_bound)
 
-    # def unpack_chunk_tupe(chunk_tuple):
-    #     return get_chunk(*chunk_tuple)
     
-    def get_chunk(start_uid, end_uid):
-        print('getting range from ', start_uid, 'to ', end_uid)
-        return curried_query(build_filters_for_range(start_uid, end_uid))
+    def make_queries():
+        res, key_val = query(build_filters_for_range(min_key))
+        print('res: ', res)
+        print('key_val: ', key_val)
+        while (key_val < max_key) and res:
+            print('key_val: ', key_val, 'max_key: ', max_key, 'res:', res)
+            new_res, new_key_val = query(build_filters_for_range(key_val))
+            if new_key_val == key_val:
+                break
+            else:
+                res.append(new_res)
+                key_val = new_key_val
+        return res
 
-    chunks = [(i*chunk_size, (i+1)*chunk_size)
-              for i in range(min_key, (max_key // chunk_size) + 1)]
-
-    print('chunks: ', chunks)
-
-    # TODO: single process map the conn.search() call, then parallelize the
-    # call to conn.getResource(res)
-    if pool_size:
-        with multiprocessing.Pool(pool_size) as pool:
-            cnets = pool.map(get_chunk, chunks)
-    else:
-        cnets = map(lambda x: get_chunk(*x), chunks)
-
-    tmp = cnets
-    print('got :', list(cnets))
+    elements = make_queries()
     
-    # get rid of None responses
-    return [c for c in cnets if c]
+    print('got :', elements)
+    
+
+    return elements
 
 def scrape_uchicago():
-    get_filter = lambda x: FILTER_PROPERTY_FMT.format(x)
-    filters = ldap_or(get_filter('student'), get_filter('former_student'))
-
-    return ldap_scrape(SERVER_URL, DN, ATTRIBUTES, filters, KEY_ON, MAX_KEY,
-                       pool_size=1)
+    edu_filter = lambda x: make_ldap_filter('eduPersonPrimaryAffiliation', x)
+    filters = ldap_or(edu_filter('student'), edu_filter('former_student'))
+    
+    return ldap_scrape(SERVER_URL, DN, ATTRIBUTES, filters, KEY_ON)
     
                       
