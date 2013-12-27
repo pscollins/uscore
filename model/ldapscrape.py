@@ -1,15 +1,18 @@
 import subprocess
 import re
+import json
 
 SERVER_URL = 'ldap.uchicago.edu'
 #PORT = '389'
 DN = 'ou=people,dc=uchicago,dc=edu'
 FILTER_PROPERTY_FMT = 'eduPersonAffiliation={}'
 ATTRIBUTES = ['displayName', 'cn', 'givenName', 'sn']
-KEY_ON = 'uidNumber'
+KEY_ON = 'uid'
 MAX_KEY = 10000000000
 
 #SCOPE = 'sub'
+
+RESPONSE_TIMEOUT = object()
 
 def ldap_and(arg1, arg2):
     return _ldap_filter_join('&', arg1, arg2)
@@ -29,7 +32,7 @@ def process_response(resp_str, attributes):
     responses = resp_str.split('\n\n\n')
 
     def matcher(attribute):
-      return re.compile(PATTERN.format(attribute=attribute))
+        return re.compile(PATTERN.format(attribute=attribute))
 
     def build_entry(r):
         return {a:matcher(a).search(r).group(1) for a in attributes
@@ -40,8 +43,8 @@ def process_response(resp_str, attributes):
 def get_entry_with_max(entries, key_on):
     return int(max([int(e[key_on]) for e in entries if key_on in e.keys()]))
 
-def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
-                max_key=float('inf'), min_key=0, port=389):
+def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
+                port=389):
     '''
     Scrapes an entire ldap server and returns a list of the requested
     attributes for each query. 
@@ -50,6 +53,7 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
     QUERY_FMT = \
       '{server_url}:{port}/{dn}?{attributes}?{scope}?{filters}'
     QUERY_PROC = 'curl'
+    OPTS = ['-s', '-m 3']
     
     search_attributes = attributes_list
     if key_on not in search_attributes:
@@ -59,35 +63,45 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
         query_str = QUERY_FMT.format(server_url=server_url, port=port, dn=dn,
                                      attributes=','.join(search_attributes),
                                      scope='sub', filters=filters_with_key)
-        print('submitting query: ', query_str)
-        response = \
-          subprocess.check_output([QUERY_PROC, '-s', query_str]).decode()
+        # print('submitting query: ', query_str)
+        # we use a timeout to "short circuit" when we know we'll get
+        # too many responses
+
+        try:
+            response = \
+              subprocess.check_output([QUERY_PROC, query_str] + OPTS).decode()
+            entries = process_response(response, search_attributes)
+        except subprocess.CalledProcessError as e:
+            if e.returncode == 28:
+                entries = RESPONSE_TIMEOUT
+            else:
+                raise e
+                
         # print('got response: ')
-        entries = process_response(response, search_attributes)
-        max_key = get_entry_with_max(entries, key_on)
-        return entries, max_key
+        return entries
         
 
-    def build_filters_for_range(start_key_val):
-        lower_bound = make_ldap_filter(key_on, start_key_val, '>=')
-        return ldap_and(filters, lower_bound)
-
+    def build_key_filter(key_val, star=False):
+        key_filter = make_ldap_filter(key_on, key_val + ('*' if star else ''))
+        return ldap_and(filters, key_filter)
     
-    def make_queries():
-        res, key_val = query(build_filters_for_range(min_key))
-        # print('res: ', res)
-        print('key_val: ', key_val)
-        while (key_val < max_key) and res:
-            print('key_val: ', key_val, 'max_key: ', max_key)
-            new_res, new_key_val = query(build_filters_for_range(key_val))
-            if new_key_val == key_val:
-                break
-            else:
-                res.extend(new_res)
-                key_val = new_key_val
+    def make_queries(base_key):
+        res = []
+        for i in 'abcdefghijklmnopqrstuvwxyz0123456789':
+            new_base = base_key + str(i)
+            unstarred_res = query(build_key_filter(new_base))
+            starred_res = query(build_key_filter(new_base, True))
+            if unstarred_res:
+                res.append(unstarred_res)
+            if starred_res:
+                if starred_res is RESPONSE_TIMEOUT or len(starred_res) > 10:
+                    res.append(make_queries(new_base))
+                else:
+                    res.append(starred_res)
+        
         return res
 
-    elements = make_queries()
+    elements = make_queries('')
     
     # print('got :', elements)
     
@@ -103,3 +117,5 @@ def scrape_uchicago():
                       
 if __name__ == '__main__':
     names = scrape_uchicago()
+    with open('ldap_scraped.json', 'w') as f:
+        json.dump(names, f)
