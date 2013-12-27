@@ -40,8 +40,6 @@ def process_response(resp_str, attributes):
     
     return [build_entry(r) for r in responses]
 
-def get_entry_with_max(entries, key_on):
-    return int(max([int(e[key_on]) for e in entries if key_on in e.keys()]))
 
 def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
                 port=389):
@@ -53,23 +51,24 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
     QUERY_FMT = \
       '{server_url}:{port}/{dn}?{attributes}?{scope}?{filters}'
     QUERY_PROC = 'curl'
-    OPTS = ['-s', '-m 3']
+    OPTS = ['-s']
+    TIMEOUT_OPT = ['-m 3']
     
     search_attributes = attributes_list
     if key_on not in search_attributes:
         search_attributes.append(key_on)
                   
-    def query(filters_with_key):
+    def query(filters_with_key, timeout=False):
         query_str = QUERY_FMT.format(server_url=server_url, port=port, dn=dn,
                                      attributes=','.join(search_attributes),
                                      scope='sub', filters=filters_with_key)
         # print('submitting query: ', query_str)
         # we use a timeout to "short circuit" when we know we'll get
         # too many responses
-
+        opts = OPTS + (TIMEOUT_OPT if timeout else [])
         try:
             response = \
-              subprocess.check_output([QUERY_PROC, query_str] + OPTS).decode()
+              subprocess.check_output([QUERY_PROC, query_str] + opts).decode()
             entries = process_response(response, search_attributes)
         except subprocess.CalledProcessError as e:
             if e.returncode == 28:
@@ -79,25 +78,25 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
                 
         # print('got response: ')
         return entries
-        
 
     def build_key_filter(key_val, star=False):
         key_filter = make_ldap_filter(key_on, key_val + ('*' if star else ''))
         return ldap_and(filters, key_filter)
     
     def make_queries(base_key):
+        print('making queries for: ', base_key)
         res = []
         for i in 'abcdefghijklmnopqrstuvwxyz0123456789':
-            new_base = base_key + str(i)
+            new_base = base_key + i
             unstarred_res = query(build_key_filter(new_base))
-            starred_res = query(build_key_filter(new_base, True))
+            starred_res = query(build_key_filter(new_base, True), True)
             if unstarred_res:
-                res.append(unstarred_res)
+                res += unstarred_res
             if starred_res:
                 if starred_res is RESPONSE_TIMEOUT or len(starred_res) > 10:
-                    res.append(make_queries(new_base))
+                    res += make_queries(new_base)
                 else:
-                    res.append(starred_res)
+                    res += starred_res
         
         return res
 
