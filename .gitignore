@@ -58,3 +58,4 @@ keys.py
 /model/metricData.sql
 /model/tests/metricData.csv
 /model/tests/metricData.sql
+/data/ldap_schema.txt

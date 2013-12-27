@@ -1,5 +1,5 @@
-import ldap3
-import multiprocessing
+import subprocess
+import re
 
 SERVER_URL = 'ldap.uchicago.edu'
 #PORT = '389'
@@ -23,6 +23,23 @@ def _ldap_filter_join(op, arg1, arg2):
 def make_ldap_filter(key, value, relation='='):
     return "({}{}{})".format(key, relation, value)
 
+
+def process_response(resp_str, attributes):
+    PATTERN  = r'\s*{attribute}: ([a-zA-z0-9 ]+)'
+    responses = resp_str.split('\n\n\n')
+
+    def matcher(attribute):
+      return re.compile(PATTERN.format(attribute=attribute))
+
+    def build_entry(r):
+        return {a:matcher(a).search(r).group(1) for a in attributes
+                       if matcher(a).search(r)}
+    
+    return [build_entry(r) for r in responses]
+
+def get_entry_with_max(entries, key_on):
+    return int(max([int(e[key_on]) for e in entries if key_on in e.keys()]))
+
 def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
                 max_key=float('inf'), min_key=0, port=389):
     '''
@@ -30,28 +47,25 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
     attributes for each query. 
     '''
 
-    conn = ldap3.Connection(
-        ldap3.Server(server_url, port=port,
-                     getInfo=ldap3.GET_ALL_INFO),
-        clientStrategy=ldap3.STRATEGY_ASYNC_THREADED)
-    conn.open()
-
+    QUERY_FMT = \
+      '{server_url}:{port}/{dn}?{attributes}?{scope}?{filters}'
+    QUERY_PROC = 'curl'
+    
     search_attributes = attributes_list
     if key_on not in search_attributes:
         search_attributes.append(key_on)
                   
     def query(filters_with_key):
-        print('submitting query with filters: ', filters_with_key)
-        res = conn.getResponse(
-            conn.search(dn, filters_with_key, ldap3.SEARCH_SCOPE_WHOLE_SUBTREE,
-                        attributes=search_attributes))
-        print('got response: ', res)
-        response_list = [{a:el['attributes'][a][0] for a in attributes_list}
-                         for el in res[:-1]]
-        # uidNumber gives us a list
-        key_vals = [int(el['attributes'][key_on][0]) for el in res[:-1]]
-
-        return response_list, max(key_vals)
+        query_str = QUERY_FMT.format(server_url=server_url, port=port, dn=dn,
+                                     attributes=','.join(search_attributes),
+                                     scope='sub', filters=filters_with_key)
+        print('submitting query: ', query_str)
+        response = \
+          subprocess.check_output([QUERY_PROC, '-s', query_str]).decode()
+        # print('got response: ')
+        entries = process_response(response, search_attributes)
+        max_key = get_entry_with_max(entries, key_on)
+        return entries, max_key
         
 
     def build_filters_for_range(start_key_val):
@@ -61,21 +75,21 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on,
     
     def make_queries():
         res, key_val = query(build_filters_for_range(min_key))
-        print('res: ', res)
+        # print('res: ', res)
         print('key_val: ', key_val)
         while (key_val < max_key) and res:
-            print('key_val: ', key_val, 'max_key: ', max_key, 'res:', res)
+            print('key_val: ', key_val, 'max_key: ', max_key)
             new_res, new_key_val = query(build_filters_for_range(key_val))
             if new_key_val == key_val:
                 break
             else:
-                res.append(new_res)
+                res.extend(new_res)
                 key_val = new_key_val
         return res
 
     elements = make_queries()
     
-    print('got :', elements)
+    # print('got :', elements)
     
 
     return elements
@@ -87,3 +101,5 @@ def scrape_uchicago():
     return ldap_scrape(SERVER_URL, DN, ATTRIBUTES, filters, KEY_ON)
     
                       
+if __name__ == '__main__':
+    names = scrape_uchicago()
