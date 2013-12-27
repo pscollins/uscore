@@ -87,31 +87,47 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
     def build_key_filter(key_val, star=False):
         key_filter = make_ldap_filter(key_on, key_val + ('*' if star else ''))
         return ldap_and(filters, key_filter)
+
+    def proc_unstarred_futures(futures_):
+        to_ret = []
+        for future in futures.as_completed(futures_):
+            r = future.result()
+            if r:
+                to_ret += r
+
+        return to_ret
+
+    def proc_starred_futures(futures_tuples):
+        to_ret = []
+        for future, new_base in futures_tuples:
+            r = future.result()
+            if r:
+                if len(r) > 10:
+                    to_ret += make_queries(new_base)
+                else:
+                    to_ret += r
+        return to_ret
+            
+
     
-    wp = futures.ThreadPoolExecutor()
+    wp = futures.ThreadPoolExecutor(max_workers=4)
     def make_queries(base_key):
+        # if len(base_key) > 2:
+        #     return []
         # testing
-        if len(base_key) > 2:
-            return []
         print('making queries for: ', base_key)
         res = []
-        to_test = 'abcdefghijklmnopqrstuvwxyz0123456789'
-        for i in 'abcdefghijklmnopqrstuvwxyz0123456789':
-            new_base = base_key + i
-                unstarred = wp.submit(query, build_key_filter(new_base))
-                starred = wp.submit(query, build_key_filter(new_base, True),
-                                    True)
-            unstarred_res = unstarred.result()
-            if unstarred_res:
-                res += unstarred_res
-            starred_res = starred.result()
-            if starred_res:
-                if starred_res is RESPONSE_TIMEOUT or len(starred_res) > 10:
-                    res += make_queries(new_base)
-                else:
-                    res += starred_res
-        
-        return res
+        new_keys = [base_key+i for i in 'abcdefghijklmnopqrstuvwxyz0123456789']
+        unstarred_query = \
+          lambda key: wp.submit(query, build_key_filter(key))
+        starred_query = \
+          lambda key:  wp.submit(query, build_key_filter(key, True), True)
+
+        unstarred_futures = wp.map(unstarred_query, new_keys)
+        starred_futures = zip(wp.map(starred_query, new_keys), new_keys)
+                
+        return proc_unstarred_futures(unstarred_futures) + \
+           proc_starred_futures(starred_futures)
 
     elements = make_queries(base_str)
     
@@ -130,10 +146,9 @@ def curried_scrape(base):
 
 def scrape_uchicago(procs):
     to_check = 'abcdefghijklmnopqrstuvwxyz0123456789'
-    l = [''.join(el) for el in itertools.permutations(to_check*2, 2)]
-    print(l)
+
     with multiprocessing.Pool(procs) as pool:
-        results = pool.map(curried_scrape, l[:5])
+        results = pool.map(curried_scrape, to_check)
 
     print('length: ', len(results))
     print("got: ", results)
@@ -145,5 +160,5 @@ if __name__ == '__main__':
     names = scrape_uchicago(5)
     print(names)
     print("got ", len(names), " names")
-    # with open('ldap_scraped.json', 'w') as f:
-    #     json.dump(names, f)
+    with open('ldap_scraped.json', 'w') as f:
+        json.dump(names, f)
