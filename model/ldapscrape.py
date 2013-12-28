@@ -68,7 +68,7 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
         query_str = QUERY_FMT.format(server_url=server_url, port=port, dn=dn,
                                      attributes=','.join(search_attributes),
                                      scope='sub', filters=filters_with_key)
-        # print('submitting query: ', query_str)
+        print('submitting query: ', query_str)
         # we use a timeout to "short circuit" when we know we'll get
         # too many responses
         opts = [QUERY_PROC, query_str] + OPTS + (TIMEOUT_OPT if timeout else [])
@@ -115,7 +115,7 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
         # if len(base_key) > 2:
         #     return []
         # testing
-        print('making queries for: ', base_key)
+        # print('making queries for: ', base_key)
         res = []
         new_keys = [base_key+i for i in 'abcdefghijklmnopqrstuvwxyz0123456789']
         unstarred_query = \
@@ -134,7 +134,7 @@ def ldap_scrape(server_url, dn, attributes_list, filters, key_on='uid',
     # print('got :', elements)
     
 
-    return elements
+    return [e for e in elements if e]
 
 # need to put this outside so it can be pickled
 def curried_scrape(base):
@@ -150,9 +150,9 @@ def scrape_uchicago(procs):
     with multiprocessing.Pool(procs) as pool:
         results = pool.map(curried_scrape, to_check)
 
-    print('length: ', len(results))
-    print("got: ", results)
-    ret = [r for result in results for r in result]
+    # print('length: ', len(results))
+    # print("got: ", results)
+    ret =  [r for result in results for r in result]
     return ret
     
                       

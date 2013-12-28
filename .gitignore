@@ -59,3 +59,5 @@ keys.py
 /model/tests/metricData.csv
 /model/tests/metricData.sql
 /data/ldap_schema.txt
+/tests/test_names.txt
+
