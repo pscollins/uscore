@@ -6,7 +6,7 @@ import facebook
 import os
 import simplejson
 import urllib.parse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent import futures
 
 
 class BadEnvironmentError(Exception):
@@ -246,7 +246,7 @@ of the comments and likes.'''
         except KeyError:
             ret['message'] = ''
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with futures.ThreadPoolExecutor(max_workers=3) as executor:
             updates = {executor.submit(self._deep_update, key):key for key in
                        ('comments', 'likes')}
             for future in futures.as_completed(updates):
@@ -287,12 +287,7 @@ of the comments and likes.'''
         # empty list if it doesn't
         if key in self._post_dict.keys():
             if self._needs_deep_update(key):
-                with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as
-                     executor:
-                for elements in getattr(self._post, key)():
-                    # print('in loop')
-                    # print(key, ": ", elements['data'])
-                    ret += elements['data']
+                ret = [el['data'] for el in getattr(self._post, key)()]
             else:
                 # print('other yes')
                 ret = self._post_dict[key]['data']
