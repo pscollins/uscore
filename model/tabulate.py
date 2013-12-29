@@ -141,7 +141,6 @@ class Tabulator(Adder):
         for name in self.names:
             self._init_name(name)
 
-    @_check_invariants
     def _update_in_text_count(self, post):
         '''
         Check for names that occur in the message of a post, and count
@@ -153,7 +152,6 @@ class Tabulator(Adder):
                 self.res[name]['in text count'] += 1
                 self.res[name]['in text likes'] += self._get_num_likes(post)
 
-    @_check_invariants
     def _update_in_comments_count(self, post):
         '''
         Check to see which names were lnked in comments,
@@ -177,7 +175,6 @@ class Tabulator(Adder):
             except KeyError:
                 pass
             
-    @_check_invariants
     def _update_likes(self, post):
         '''
         Update the 'likes given' counter for everyone who liked
@@ -194,7 +191,6 @@ class Tabulator(Adder):
         '''
         return len(post.likes)
 
-    @_check_invariants
     def _update(self, post):
         '''
         Parse a single post and update all counters.
@@ -203,7 +199,6 @@ class Tabulator(Adder):
         self._update_in_comments_count(post)
         self._update_likes(post)
 
-    @_check_invariants
     def tabulate(self):
         '''
         Calculate all of the necessay statistics for each post.
