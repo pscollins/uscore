@@ -13,7 +13,8 @@ class BadEnvironmentError(Exception):
     pass
 
 class GraphAPIError(Exception):
-    pass
+    def __str__(self):
+        return self.__class__.__name__
 
 class BadRequestError(GraphAPIError):
     def __init__(self, error_dict):
@@ -87,11 +88,11 @@ class Query(AbstractGraphObject):
         self.resp = {}
         
     def query(self, **kwargs):
-        # print('about to query: ', self._page.obj_id, self.name, kwargs)
+        print('about to query: ', self._page.obj_id, self.name, kwargs)
         resp = self._page.graph.get_connections(self._page.obj_id,
                                                 self.name, **kwargs)
         self.resp = self._check_for_error(resp)
-        
+        print(resp)
         return resp
 
     @property
@@ -186,13 +187,12 @@ class Query(AbstractGraphObject):
             args = {}
             try:
                 return self.next(**args)
-            except (BadDateError, EmptyQueryError):
-                # print("stopped because ", e)
+            except (BadDateError, EmptyQueryError) as e:
+                print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
-                # TODO: this isn't working
                 print('inside EmptyResponseError')
-                print(self.last_date)
+                print('last_date: ', self.last_date)
                 # override and force a new query with the next date
                 # if it's been set
                 # this isn't going to loop infinitely because eventually
@@ -200,22 +200,19 @@ class Query(AbstractGraphObject):
                 # we need to do this because the 'next' cursor that the Graph
                 # API gives us randomly fail to produce any results
                 if self.last_date is not None:
+                    # TODO: this is decrementing once correctly, but then the
+                    # 'good date' doesn't get re-decremented the next time
+
+                    # probably we need to add in some behavior to override
+                    # the way it's pulling next_args now
                     print('decrementing')
                     args = self.next_args
                     print(self.next_args['until'])
                     args['until'] = str(int(args['until']) - self.STEP)
                 else:
+                    print('raising StopIteration again')
                     raise StopIteration
-    
-    
-# I'm not sure if this is considered good style?
-# Anyway, it will be opaque to any calling code so I can go back and add in
-# a __next__ to Query later on in life if it turns out to be annoying
-class IterableQuery:
-    def __init__(self, query):
-        self._query = query
-
-
+            print('inside of the while loop again')
         
     
 class GraphObject(AbstractGraphObject):
@@ -238,7 +235,7 @@ Post = collections.namedtuple('Post',
 
 # and a factory class carries around the GraphAPI objects we need to make
 # queries.     
-class PostFactory:
+class PostBuilder:
     '''Class for organizing data returned from facebook wall posts. If a
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
@@ -353,7 +350,7 @@ class Scraper:
         # print('kwargs: ', kwargs)
 
         
-        post_factory = PostFactory(self._graph if deep else None)
+        post_builder = PostBuilder(self._graph if deep else None)
 
         if source:
             post_fetcher = getattr(self.page, source)(**kwargs)
@@ -365,7 +362,7 @@ class Scraper:
             # would take to get to the end of self.page.posts
         for posts in post_fetcher:
             # print("posts: ", posts)
-            self.posts += [post_factory.create(p) for p in posts['data']]
+            self.posts += [post_builder.create(p) for p in posts['data']]
             if not num_to_proc:
                 break
             num_to_proc -= 1

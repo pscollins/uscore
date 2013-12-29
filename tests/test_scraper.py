@@ -17,10 +17,10 @@ class TestPosts(unittest.TestCase):
       
     def test_to_and_from_file(self):
         with open(self.TEST_POSTS_LOCATION, 'w') as f:
-            scraper.PostFactory.posts_to_file(self.TEST_POSTS, f)
+            scraper.PostBuilder.posts_to_file(self.TEST_POSTS, f)
 
         with open(self.TEST_POSTS_LOCATION, 'r') as f:
-            ps = scraper.PostFactory.posts_from_file(f)
+            ps = scraper.PostBuilder.posts_from_file(f)
 
         for old, new in zip(self.TEST_POSTS, ps):
             self.assertEqual(old, new)
