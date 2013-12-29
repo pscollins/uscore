@@ -2,11 +2,11 @@
 scoreboard that need to talk to the Facebook API.'''
 
 import collections
-import datetime
 import facebook
 import os
 import simplejson
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 
 
 class BadEnvironmentError(Exception):
@@ -65,15 +65,19 @@ class AbstractGraphObject:
             return resp
 
 class Query(AbstractGraphObject):
+    '''
+    Represents a query on the graph API. Provides generator syntax (for x in
+    query...).
+    '''
     DEFAULT_LIMIT = '500'
     # step backwards to take if last_date has been set, in seconds
     STEP = 259200
+    MAX_RETRIES = 10
 
     
     def __init__(self, page, name, **kwargs):
         print("query initialized: ", page, name, kwargs)        
         self._page = page
-
         
         try:
             self.last_date = kwargs.pop('last_date')
@@ -88,20 +92,20 @@ class Query(AbstractGraphObject):
         self.resp = {}
         
     def query(self, **kwargs):
-        print('about to query: ', self._page.obj_id, self.name, kwargs)
+        # print('about to query: ', self._page.obj_id, self.name, kwargs)
         resp = self._page.graph.get_connections(self._page.obj_id,
                                                 self.name, **kwargs)
         self.resp = self._check_for_error(resp)
-        print(resp)
+        # print(resp)
         return resp
 
     @property
     def next_args(self):
         return self._get_args('next')
 
-    @property
-    def prev_args(self):
-        return self._get_args('previous')
+    # @property
+    # def prev_args(self):
+    #     return self._get_args('previous')
     
     
     def _get_args(self, direction):
@@ -139,11 +143,7 @@ class Query(AbstractGraphObject):
             # NB: this is not really the right exception, but i don't think it
             # makes sense to define a new one
             raise BadDateError
-        # if self.resp and len(set(self.resp['paging']['cursors']
-        # TODO: this is erroring
-        # if self.next_args[next_key] == self.prev_args[prev_key]:
-            # raise EmptyQueryError
-
+        
     
     def next(self, **kwargs):
         args = {}
@@ -181,38 +181,25 @@ class Query(AbstractGraphObject):
         return self
 
     def __next__(self):
-        # is this ugly? we need it to keep trying until it fails, and this
-        # saves us recursion + an argument to __next__
-        while True:
-            args = {}
+        args = {}
+        for i in range(0, self.MAX_RETRIES):
             try:
                 return self.next(**args)
             except (BadDateError, EmptyQueryError) as e:
-                print("stopped because ", e)
+                # print("stopped because ", e)
                 raise StopIteration
             except EmptyResponseError:
-                print('inside EmptyResponseError')
-                print('last_date: ', self.last_date)
                 # override and force a new query with the next date
                 # if it's been set
-                # this isn't going to loop infinitely because eventually
-                # BadDateError will be raised
                 # we need to do this because the 'next' cursor that the Graph
                 # API gives us randomly fail to produce any results
                 if self.last_date is not None:
-                    # TODO: this is decrementing once correctly, but then the
-                    # 'good date' doesn't get re-decremented the next time
-
-                    # probably we need to add in some behavior to override
-                    # the way it's pulling next_args now
-                    print('decrementing')
-                    args = self.next_args
-                    print(self.next_args['until'])
+                    args = self.next_args if not args else args
                     args['until'] = str(int(args['until']) - self.STEP)
                 else:
-                    print('raising StopIteration again')
+                    # print('raising StopIteration again')
                     raise StopIteration
-            print('inside of the while loop again')
+        raise StopIteration
         
     
 class GraphObject(AbstractGraphObject):
@@ -233,12 +220,15 @@ class GraphObject(AbstractGraphObject):
 Post = collections.namedtuple('Post',
                               field_names=('message', 'comments', 'likes'))
 
-# and a factory class carries around the GraphAPI objects we need to make
+# and a builder class carries around the GraphAPI objects we need to make
 # queries.     
 class PostBuilder:
     '''Class for organizing data returned from facebook wall posts. If a
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
+
+    MAX_WORKERS = 12
+    
     def __init__(self, graph=None):
         # print(post_dict)
         self._graph = graph
@@ -249,17 +239,27 @@ of the comments and likes.'''
         # they aren't really associated with the class factory itself
         self._post_dict = post_dict
         self._post_id = post_dict['id']
-
+        ret = {}
+        
         try:
-            message = post_dict['message']
+            ret['message'] = post_dict['message']
         except KeyError:
-            message = ''
+            ret['message'] = ''
 
-        comments = self._deep_update('comments')
-        likes = self._deep_update('likes')
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            updates = {executor.submit(self._deep_update, key):key for key in
+                       ('comments', 'likes')}
+            for future in futures.as_completed(updates):
+                key = updates[future]
+                ret[key] = future.result()
+                
+                
+            # comments = self._deep_update('comments')
+            # likes = self._deep_update('likes')
+            
 
 
-        return Post(message, comments, likes)
+        return Post(**ret)
 
     # def __repr__(self):
     #     fmt = 'Message: {}\nLikes: {}\nComments: {}'
@@ -287,6 +287,8 @@ of the comments and likes.'''
         # empty list if it doesn't
         if key in self._post_dict.keys():
             if self._needs_deep_update(key):
+                with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as
+                     executor:
                 for elements in getattr(self._post, key)():
                     # print('in loop')
                     # print(key, ": ", elements['data'])
