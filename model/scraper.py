@@ -193,12 +193,17 @@ class Query(AbstractGraphObject):
                 # if it's been set
                 # we need to do this because the 'next' cursor that the Graph
                 # API gives us randomly fail to produce any results
+                print('Manually decrementing the request date.')
                 if self.last_date is not None:
                     args = self.next_args if not args else args
                     args['until'] = str(int(args['until']) - self.STEP)
                 else:
                     # print('raising StopIteration again')
                     raise StopIteration
+            except BadRequestError as e:
+                print('An error occurred: ')
+                print(e)
+                print('Retrying (attempt {}/{})'.format(i+1, self.MAX_RETRIES))
         raise StopIteration
         
     
@@ -226,8 +231,6 @@ class PostBuilder:
     '''Class for organizing data returned from facebook wall posts. If a
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
-
-    MAX_WORKERS = 12
     
     def __init__(self, graph=None):
         # print(post_dict)
@@ -261,9 +264,6 @@ of the comments and likes.'''
 
         return Post(**ret)
 
-    # def __repr__(self):
-    #     fmt = 'Message: {}\nLikes: {}\nComments: {}'
-    #     return fmt.format(self.message, self.likes, self.comments)
 
     #lazy initialization because we hit the page
     @property
@@ -335,11 +335,6 @@ class Scraper:
                 
     def update_scoreboard(self, num_to_proc=float("inf"),
                           deep=False, source=None, **kwargs):
-        # TODO: currently, this gets stuck around June because the Graph API
-        # rolls lke that for whatever reason. Need to add in an override that
-        # says "even if you're not getting anything in response, keep hitting
-        # until you arrive at this date"
-        # now = datetime.datetime.now().timestamp()
         
         # if self.last_scraped < (now + self.DELAY):
         # self.last_scraped = now
