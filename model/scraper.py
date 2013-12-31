@@ -238,19 +238,17 @@ of the comments and likes.'''
         # print('graph :', graph)
     
     def create(self, post_dict):
-        #TODO: refactor these out of the properties of the class?
-        # they aren't really associated with the class factory itself
-        self._post_dict = post_dict
-        self._post_id = post_dict['id']
         ret = {}
-        
+                
         try:
             ret['message'] = post_dict['message']
         except KeyError:
             ret['message'] = ''
 
+        deep_update = lambda key: self._deep_update(post_dict, key)
+
         with futures.ThreadPoolExecutor(max_workers=3) as executor:
-            updates = {executor.submit(self._deep_update, key):key for key in
+            updates = {executor.submit(deep_update, key):key for key in
                        ('comments', 'likes')}
             for future in futures.as_completed(updates):
                 key = updates[future]
@@ -259,39 +257,32 @@ of the comments and likes.'''
                 
             # comments = self._deep_update('comments')
             # likes = self._deep_update('likes')
-            
-
 
         return Post(**ret)
 
-
-    #lazy initialization because we hit the page
-    @property
-    def _post(self):
-        if not hasattr(self, '__post'):
-            self.__post = GraphObject(self._graph, self._post_id)
-        return self.__post
+    def _get_post(self, post_id):
+        return GraphObject(self._graph, post_id)
             
-    def _needs_deep_update(self, key):
-        unique_cursors = \
-          len(set(self._post_dict[key]['paging']['cursors'].values()))
+    def _needs_deep_update(self, post_dict, key):
+        unique_cursors = len(set(post_dict[key]['paging']['cursors'].values()))
         if self._graph and unique_cursors > 1:
             return True
         return False
 
     
-    def _deep_update(self, key):
+    def _deep_update(self, post_dict, key):
         ret = []
         # if there are no comments/likes, the response doesn't contain the key
         # 'comments' or 'likes', so we need to check for that and return an
         # empty list if it doesn't
-        if key in self._post_dict.keys():
-            if self._needs_deep_update(key):
-                ret = [el['data'] for el in getattr(self._post, key)()]
+        if key in post_dict.keys():
+            if self._needs_deep_update(post_dict, key):
+                post_graph_obj = self._get_post(post_dict['id'])
+                for el in getattr(post_graph_obj, key)():
+                    ret.extend(el['data'])
             else:
                 # print('other yes')
-                ret = self._post_dict[key]['data']
-                    
+                ret = post_dict[key]['data']
         return ret
 
     @staticmethod
@@ -306,15 +297,19 @@ of the comments and likes.'''
         
     
 class Scraper:
-    # delay between successive scrapes
+    # delay between successive scrapes, in seconds
     DELAY = 3600
-    def __init__(self, page_id, access_token=None):
+
+    # MAX_WORKERS = 50
+    
+    def __init__(self, page_id, access_token=None, max_workers=50):
         if not access_token:
             self._graph = self._get_graph_from_env()
         else:
             self._graph = facebook.GraphAPI(access_token)
 
-
+        self.max_workers=max_workers
+            
         self.posts = {}
         # last_scraped holds the unix timestamp when the last scraping happened
         self.last_scraped = 0
@@ -331,7 +326,16 @@ class Scraper:
         assert(token)
         
         return facebook.GraphAPI(token)
+
+    def _build_posts(self, post_builder, post_list):
+        with futures.ThreadPoolExecutor(max_workers=self.max_workers) as \
+          executor:
+            async_build = lambda p: executor.submit(post_builder.create, p)
+            post_futures = [async_build(p) for p in post_list]
+            ret = [p.result() for p in futures.as_completed(post_futures)]
             
+        return ret
+
                 
     def update_scoreboard(self, num_to_proc=float("inf"),
                           deep=False, source=None, **kwargs):
@@ -354,7 +358,8 @@ class Scraper:
             # would take to get to the end of self.page.posts
         for posts in post_fetcher:
             # print("posts: ", posts)
-            self.posts += [post_builder.create(p) for p in posts['data']]
+            self.posts.extend(self._build_posts(post_builder, posts['data']))
+            
             if not num_to_proc:
                 break
             num_to_proc -= 1

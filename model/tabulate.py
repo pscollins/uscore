@@ -161,11 +161,12 @@ class Tabulator(Adder):
         '''
         adder = UniqueAdder(self.res, 'in comments count unique')
         for comment in post.comments:
+            # print(comment)
             sender = comment['from']['name']
             self._inc(sender, 'comments given')
             try:
                 for tag in comment['message_tags']:
-                    print('tag: ', tag)
+                    # print('tag: ', tag)
                     recipient = tag['name']
                     adder.add(recipient)
                     self._inc(recipient, 'in comments count gross')

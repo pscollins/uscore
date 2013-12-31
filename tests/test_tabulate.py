@@ -20,7 +20,7 @@ class TestTabulate(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with open(cls.PICKLED_POSTS, 'r') as f:
-            posts = scraper.PostFactory.posts_from_file(f)
+            posts = scraper.PostBuilder.posts_from_file(f)
         with open(cls.NAME_LIST, 'r') as f:
             name_list = [l.strip() for l in f
                          if (l.strip() and not '#' in l)]

@@ -61,3 +61,4 @@ keys.py
 /data/ldap_schema.txt
 /tests/test_names.txt
 
+/model/tmp.json
