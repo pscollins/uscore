@@ -2,10 +2,10 @@
 scoreboard that need to talk to the Facebook API.'''
 
 import collections
-import facebook
 import os
 import simplejson
 import urllib.parse
+from uscore.facebook import facebook
 from concurrent import futures
 
 
@@ -74,11 +74,11 @@ class Query(AbstractGraphObject):
     STEP = 259200
     MAX_RETRIES = 10
 
-    
+
     def __init__(self, page, name, **kwargs):
-        print("query initialized: ", page, name, kwargs)        
+        print("query initialized: ", page, name, kwargs)
         self._page = page
-        
+
         try:
             self.last_date = kwargs.pop('last_date')
         except KeyError:
@@ -90,7 +90,7 @@ class Query(AbstractGraphObject):
 
         self.name = name
         self.resp = {}
-        
+
     def query(self, **kwargs):
         # print('about to query: ', self._page.obj_id, self.name, kwargs)
         resp = self._page.graph.get_connections(self._page.obj_id,
@@ -106,18 +106,18 @@ class Query(AbstractGraphObject):
     # @property
     # def prev_args(self):
     #     return self._get_args('previous')
-    
-    
+
+
     def _get_args(self, direction):
         try:
             return self._proc_args(self.resp['paging'][direction])
         except KeyError:
             return None
-    
+
     def _proc_args(self, query_url):
         # args_list = [e.split('=') for e in \
         #              query_url.split('?', 1)[-1].split('&')]
-        
+
         ret = {key:value[0] for key, value in \
             urllib.parse.parse_qs(query_url.split('?', 1)[-1]).items()}
         if not 'limit' in ret.keys():
@@ -127,11 +127,11 @@ class Query(AbstractGraphObject):
         # the facebook module
         if 'access_token' in ret.keys():
             del(ret['access_token'])
-            
+
         return ret
 
     def _check_next_args(self):
-        # print('next_args: ', self.next_args.keys())  
+        # print('next_args: ', self.next_args.keys())
         if 'until' in self.next_args.keys():
             next_key, prev_key = 'until', 'since'
             if (self.last_date is not None) and \
@@ -143,11 +143,11 @@ class Query(AbstractGraphObject):
             # NB: this is not really the right exception, but i don't think it
             # makes sense to define a new one
             raise BadDateError
-        
-    
+
+
     def next(self, **kwargs):
         args = {}
-        
+
         # check for failure conditions and raise exceptions if something will
         # give us an invalid result.
         # We care about this in particular so that the iterator can capture
@@ -205,12 +205,12 @@ class Query(AbstractGraphObject):
                 print(e)
                 print('Retrying (attempt {}/{})'.format(i+1, self.MAX_RETRIES))
         raise StopIteration
-        
-    
+
+
 class GraphObject(AbstractGraphObject):
     def __init__(self, graph, obj_id):
         assert type(obj_id) is str
-        
+
         self.graph = graph
         self.obj_id = obj_id
 
@@ -226,20 +226,20 @@ Post = collections.namedtuple('Post',
                               field_names=('message', 'comments', 'likes'))
 
 # and a builder class carries around the GraphAPI objects we need to make
-# queries.     
+# queries.
 class PostBuilder:
     '''Class for organizing data returned from facebook wall posts. If a
 Graph object is passed, it will perform a "deep check" and pull down all
 of the comments and likes.'''
-    
+
     def __init__(self, graph=None):
         # print(post_dict)
         self._graph = graph
         # print('graph :', graph)
-    
+
     def create(self, post_dict):
         ret = {}
-                
+
         try:
             ret['message'] = post_dict['message']
         except KeyError:
@@ -253,8 +253,8 @@ of the comments and likes.'''
             for future in futures.as_completed(updates):
                 key = updates[future]
                 ret[key] = future.result()
-                
-                
+
+
             # comments = self._deep_update('comments')
             # likes = self._deep_update('likes')
 
@@ -262,14 +262,14 @@ of the comments and likes.'''
 
     def _get_post(self, post_id):
         return GraphObject(self._graph, post_id)
-            
+
     def _needs_deep_update(self, post_dict, key):
         unique_cursors = len(set(post_dict[key]['paging']['cursors'].values()))
         if self._graph and unique_cursors > 1:
             return True
         return False
 
-    
+
     def _deep_update(self, post_dict, key):
         ret = []
         # if there are no comments/likes, the response doesn't contain the key
@@ -288,20 +288,20 @@ of the comments and likes.'''
     @staticmethod
     def posts_to_file(posts, file_handle):
         simplejson.dump(posts, file_handle)
-        
+
 
     @staticmethod
     def posts_from_file(file_handle):
         return [Post(p['message'], p['comments'], p['likes'])
-               for p in simplejson.load(file_handle)]        
-        
-    
+               for p in simplejson.load(file_handle)]
+
+
 class Scraper:
     # delay between successive scrapes, in seconds
     DELAY = 3600
 
     # MAX_WORKERS = 50
-    
+
     def __init__(self, page_id, access_token=None, max_workers=50):
         if not access_token:
             self._graph = self._get_graph_from_env()
@@ -309,12 +309,12 @@ class Scraper:
             self._graph = facebook.GraphAPI(access_token)
 
         self.max_workers=max_workers
-            
+
         self.posts = {}
         # last_scraped holds the unix timestamp when the last scraping happened
         self.last_scraped = 0
         self.page = GraphObject(self._graph, page_id)
-        
+
 
     def _get_graph_from_env(self):
         app_id = os.environ.get('FACEBOOK_APP_ID')
@@ -324,7 +324,7 @@ class Scraper:
 
         token = facebook.get_app_access_token(app_id, app_secret)
         assert(token)
-        
+
         return facebook.GraphAPI(token)
 
     def _build_posts(self, post_builder, post_list):
@@ -333,37 +333,36 @@ class Scraper:
             async_build = lambda p: executor.submit(post_builder.create, p)
             post_futures = [async_build(p) for p in post_list]
             ret = [p.result() for p in futures.as_completed(post_futures)]
-            
+
         return ret
 
-                
+
     def update_scoreboard(self, num_to_proc=float("inf"),
                           deep=False, source=None, **kwargs):
-        
+
         # if self.last_scraped < (now + self.DELAY):
         # self.last_scraped = now
         self.posts = []
         # print('kwargs: ', kwargs)
 
-        
+
         post_builder = PostBuilder(self._graph if deep else None)
 
         if source:
             post_fetcher = getattr(self.page, source)(**kwargs)
         else:
             post_fetcher = self.page.feed(**kwargs)
-                
+
             # NOTE: this is going to be REALLY EXPENSIVE
             # Also, it would parallelize easily, IF we knew how many queries it
             # would take to get to the end of self.page.posts
         for posts in post_fetcher:
             # print("posts: ", posts)
             self.posts.extend(self._build_posts(post_builder, posts['data']))
-            
+
             if not num_to_proc:
                 break
             num_to_proc -= 1
 
 
         return self.posts
-        

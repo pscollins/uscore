@@ -59,6 +59,6 @@ keys.py
 /model/tests/metricData.csv
 /model/tests/metricData.sql
 /data/ldap_schema.txt
-tests/scraper_test_tmp
+/tests/scraper_test_tmp
 
 /model/tmp.json
