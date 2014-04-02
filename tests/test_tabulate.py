@@ -156,7 +156,20 @@ class TestTabulate(unittest.TestCase):
             self.assertEqual(to_test,
                              1 if (name == 'MJ Chen') else 0)
 
-    
+    def test_extended_in_text_count(self):
+        posts = [scraper.Post('foo', [], []) for x in range(0, 10)]
+        posts.append(scraper.Post('blahblahblahfooblahblah', [], []))
+        posts.append(scraper.Post('     foo   blah', [], []))
+                     
+        names = ['foo', 'bar']
+
+        res = tabulate.Tabulator(posts, names).tabulate()
+
+        self.assertEqual(res['foo']['in text count'], 12)
+        self.assertEqual(res['bar']['in text count'], 0)
+        
+
+        
         
 
 

@@ -1,5 +1,6 @@
 import tabulate
 import scraper
+import json
 
 from uscore.scripts.json_to_namelist import *
 
@@ -11,3 +12,6 @@ with open('./ps_full.json') as f:
 
 tab = tabulate.Tabulator(ps, names)
 results = tab.tabulate()
+
+with open('tabbed_full.json') as f:
+    json.dump(results)

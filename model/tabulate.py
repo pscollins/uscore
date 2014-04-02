@@ -146,8 +146,6 @@ class Tabulator(Adder):
         Check for names that occur in the message of a post, and count
         the number of likes that they recieve.
         '''
-        # TODO: this isn't finding 90% of the names
-        # need to write some testcases
         for name in self.names:
             if name in post.message:
                 # print('_in_text_count: ', name)

@@ -15,7 +15,7 @@ def join_on_keys(name_dicts, keys, sep=' '):
 
 def first_and_last_name(name_dicts):
     '''Join scraped LDAP names on givenName and sn'''
-    return join_on_keys(name_dicts, {'givenName', 'sn'})
+    return join_on_keys(name_dicts, ['givenName', 'sn'])
 
 
 def apply_to_file(op, file_handle):
