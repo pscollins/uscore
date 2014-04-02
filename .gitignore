@@ -39,7 +39,7 @@ nosetests.xml
 # Emacs
 *~
 
-# Project-specific 
+# Project-specific
 set-keys.sh
 keys.py
 /crushes.p
@@ -59,6 +59,6 @@ keys.py
 /model/tests/metricData.csv
 /model/tests/metricData.sql
 /data/ldap_schema.txt
-/tests/test_names.txt
+tests/scraper_test_tmp
 
 /model/tmp.json
